@@ -1,9 +1,18 @@
 import { useParams, useSearchParams, Link } from "react-router";
 import { useState, useEffect } from "react";
-import { ChevronLeft, Server, ShieldCheck, Wifi, Sparkles, AlertCircle } from "lucide-react";
+import {
+  ChevronLeft,
+  Server,
+  ShieldCheck,
+  Wifi,
+  Download,
+  ArrowDown,
+  Sparkles,
+  Info,
+} from "lucide-react";
 import { useDetail } from "../components/useTMDB";
 import { useAuth } from "../components/auth";
-import { getYear } from "../components/tmdb";
+import { getYear, getTitle } from "../components/tmdb";
 import { DownloadManager } from "../components/DownloadManager";
 
 const SERVERS = [
@@ -109,25 +118,45 @@ export default function Watch() {
     saveProgress({ ...movie, media_type: type, progress: 25, updatedAt: Date.now() });
   }, [user?.id, movie?.id, type]);
 
-  // Always ensure watch page starts from top
+  // Initial scroll to top on title change
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [id, season, episode]);
 
+  const scrollToDownloads = () => {
+    const el = document.getElementById("downloads-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
+    } else {
+      window.scrollBy({ top: 700, behavior: "smooth" });
+    }
+  };
+
+  const scrollToServers = () => {
+    const el = document.getElementById("servers-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
+    } else {
+      window.scrollBy({ top: 500, behavior: "smooth" });
+    }
+  };
+
   if (loading || !movie) {
     return (
-      <div className="px-6 lg:px-12 mt-6">
-        <div className="h-6 w-32 skeleton mb-4" />
+      <div className="max-w-6xl mx-auto px-4 sm:px-8 mt-24">
+        <div className="h-6 w-36 skeleton mb-4" />
         <div className="aspect-video w-full skeleton rounded-3xl" />
       </div>
     );
   }
 
+  const title = getTitle(movie);
   const embedUrl = SERVERS[activeServer].getUrl(type, numericId, season, episode);
 
   return (
-    <div className="mt-0 animate-fade-in pb-20">
-      <div className="mx-4 sm:mx-8 lg:mx-12 pt-20 sm:pt-6 flex items-center justify-between">
+    <div className="w-full animate-fade-in pb-28 pt-20 sm:pt-6">
+      {/* Top Header Navigation Bar */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-3 flex flex-wrap items-center justify-between gap-3">
         <Link
           to={`/title/${mediaType}-${rawId}`}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs sm:text-sm text-white/80 hover:text-white transition-all shadow-md"
@@ -135,48 +164,90 @@ export default function Watch() {
           <ChevronLeft className="w-4 h-4" /> Back to details
         </Link>
 
-        {/* Jio / Universal ISP Unblock Indicator */}
-        <button
-          onClick={() => setShowJioTips(!showJioTips)}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
-        >
-          <Wifi className="w-3.5 h-3.5" />
-          <span>Jio & ISP Unblocked Active</span>
-        </button>
+        {/* Quick Action Jump Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={scrollToDownloads}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-black font-bold text-xs hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-500/20"
+          >
+            <Download className="w-3.5 h-3.5 text-black" />
+            <span>⚡ 4K Downloads & Torrents</span>
+          </button>
+
+          <button
+            onClick={scrollToServers}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full glass-pill text-white text-xs font-semibold hover:bg-white/20 transition-all"
+          >
+            <Server className="w-3.5 h-3.5 text-amber-400" />
+            <span>Servers ({SERVERS.length})</span>
+          </button>
+
+          <button
+            onClick={() => setShowJioTips(!showJioTips)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
+          >
+            <Wifi className="w-3.5 h-3.5" />
+            <span>Jio Unblock Active</span>
+          </button>
+        </div>
       </div>
 
       {/* Jio ISP Helper Banner */}
       {showJioTips && (
-        <div className="mx-4 sm:mx-8 lg:mx-12 mt-3 p-4 rounded-2xl glass-sheet border border-emerald-500/30 text-xs text-white/80 space-y-2 animate-fade-in">
-          <div className="flex items-center gap-2 font-bold text-emerald-300">
-            <ShieldCheck className="w-4 h-4" />
-            <span>Universal Internet Optimization (Reliance Jio, Airtel, Vi)</span>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-4">
+          <div className="p-4 rounded-2xl glass-sheet border border-emerald-500/30 text-xs text-white/80 space-y-2 animate-fade-in">
+            <div className="flex items-center gap-2 font-bold text-emerald-300">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Universal Internet Optimization (Reliance Jio, Airtel, Vi)</span>
+            </div>
+            <p className="text-white/60 leading-relaxed">
+              Servers 1, 2, 3, 4, 5, and 6 are configured with alternative routing that bypasses Indian ISP DNS restrictions. If any server buffers, switch to <strong>Server 1 (VidLink)</strong> or <strong>Server 2 (VidSrc CC)</strong>.
+            </p>
           </div>
-          <p className="text-white/60 leading-relaxed">
-            Servers 1, 2, 3, 4, 5, and 6 are configured with alternative routing that bypasses Indian ISP DNS restrictions. If any server buffers, simply switch to <strong>Server 1 (VidLink)</strong> or <strong>Server 2 (VidSrc CC)</strong>.
-          </p>
         </div>
       )}
 
-      {/* Player Frame */}
-      <div className="relative left-1/2 mt-4 aspect-video w-screen -translate-x-1/2 overflow-hidden border-y border-white/[0.08] bg-black shadow-2xl">
-        <iframe
-          key={activeServer}
-          src={embedUrl}
-          allowFullScreen
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          referrerPolicy="origin"
-          className="w-full h-full border-0"
-          title="Movie/TV Player"
-        />
+      {/* Contained Cinema Video Player (Comfortably sized with margins so page scrolling is effortless) */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6">
+        <div className="relative aspect-video max-h-[72vh] w-full rounded-2xl sm:rounded-3xl overflow-hidden border border-white/15 bg-black shadow-2xl">
+          <iframe
+            key={activeServer}
+            src={embedUrl}
+            allowFullScreen
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerPolicy="origin"
+            className="w-full h-full border-0"
+            title="Movie/TV Player"
+          />
+        </div>
+
+        {/* Downward Jump Prompt to guide users down */}
+        <div className="mt-4 flex items-center justify-between px-2 text-xs text-white/60 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-white">{title}</span>
+            <span>·</span>
+            <span className="text-amber-400 font-medium">{SERVERS[activeServer].name}</span>
+          </div>
+
+          <button
+            onClick={scrollToDownloads}
+            className="inline-flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-semibold transition-colors group cursor-pointer"
+          >
+            <span>Scroll down for 4K Torrents & Fast Downloads</span>
+            <ArrowDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+          </button>
+        </div>
       </div>
 
       {/* Streaming Server & Download Section */}
-      <div className="mx-4 sm:mx-8 lg:mx-12 mt-6 space-y-6 sm:space-y-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-8 space-y-8">
         {/* Server Selection */}
-        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4 sm:p-6 backdrop-blur-xl">
+        <div
+          id="servers-section"
+          className="rounded-3xl border border-white/10 bg-white/[0.02] p-5 sm:p-7 backdrop-blur-2xl scroll-mt-24 shadow-xl"
+        >
           <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
-            <div className="flex items-center gap-2 text-sm text-white/90 font-medium">
+            <div className="flex items-center gap-2 text-sm text-white/90 font-bold">
               <Server className="w-4 h-4 text-amber-400" />
               <span>Streaming Servers ({SERVERS.length} Free High-Speed Providers)</span>
             </div>
@@ -196,9 +267,9 @@ export default function Watch() {
               <button
                 key={server.id}
                 onClick={() => setActiveServer(index)}
-                className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-full text-xs whitespace-nowrap transition-all duration-200 border shrink-0 ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs whitespace-nowrap transition-all duration-200 border shrink-0 ${
                   activeServer === index
-                    ? "bg-white text-black border-white font-semibold shadow-lg shadow-white/10"
+                    ? "bg-white text-black border-white font-bold shadow-lg shadow-white/15 scale-[1.02]"
                     : "bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white"
                 }`}
               >
@@ -220,14 +291,23 @@ export default function Watch() {
         </div>
 
         {/* 4K Torrents & Fast Downloads */}
-        <DownloadManager
-          title={movie.title || movie.name || "Movie"}
-          year={getYear(movie)}
-          imdbId={movie.external_ids?.imdb_id}
-          type={type}
-          season={season}
-          episode={episode}
-        />
+        <div id="downloads-section" className="scroll-mt-24">
+          <div className="flex items-center gap-2 mb-3">
+            <Download className="w-4 h-4 text-amber-400" />
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Fast 4K Downloads & High-Speed Torrents
+            </h3>
+          </div>
+
+          <DownloadManager
+            title={movie.title || movie.name || "Movie"}
+            year={getYear(movie)}
+            imdbId={movie.external_ids?.imdb_id}
+            type={type}
+            season={season}
+            episode={episode}
+          />
+        </div>
       </div>
     </div>
   );
