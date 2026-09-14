@@ -1,5 +1,5 @@
 import { useParams, useSearchParams, Link } from "react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   ChevronLeft,
   Server,
@@ -10,19 +10,35 @@ import {
   Sparkles,
   Subtitles,
   Airplay,
+  Zap,
+  Loader2,
 } from "lucide-react";
 import { useDetail } from "../components/useTMDB";
 import { useAuth } from "../components/auth";
 import { getYear, getTitle } from "../components/tmdb";
+import { backdrop } from "../components/tmdb";
 import { DownloadManager } from "../components/DownloadManager";
 import { ExternalPlayerModal } from "../components/ExternalPlayerModal";
+import { NativePlayer } from "../components/NativePlayer";
+import { fetchDirectStream, type StreamSource } from "../components/streamSources";
 
-const SERVERS = [
+// First entry is the native Cinejoy-style player (no iframe)
+const NATIVE_SERVER = {
+  id: "native",
+  name: "⚡ Cinemax Ultra (No Ads)",
+  badge: "NATIVE",
+  isJioFriendly: true,
+  isNative: true as const,
+  getUrl: () => "", // unused — native player handles its own source
+};
+
+const IFRAME_SERVERS = [
   {
     id: "vidlink",
     name: "VidLink (4K Jio Ready)",
     badge: "4K UHD",
     isJioFriendly: true,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://vidlink.pro/tv/${id}/${season}/${episode}?primaryColor=f59e0b`
@@ -33,6 +49,7 @@ const SERVERS = [
     name: "VidSrc CC (Unblocked)",
     badge: "4K Fast",
     isJioFriendly: true,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://vidsrc.cc/v2/embed/tv/${id}/${season}/${episode}`
@@ -43,6 +60,7 @@ const SERVERS = [
     name: "SmashyStream (VIP Ultra)",
     badge: "4K VIP",
     isJioFriendly: true,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://player.smashystream.com/tv/${id}?s=${season}&e=${episode}`
@@ -53,6 +71,7 @@ const SERVERS = [
     name: "AutoEmbed (Zero Ads)",
     badge: "4K UHD",
     isJioFriendly: true,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://autoembed.co/tv/tmdb/${id}-${season}-${episode}`
@@ -63,6 +82,7 @@ const SERVERS = [
     name: "Embed.su (Multi-Subtitles)",
     badge: "1080p",
     isJioFriendly: true,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://embed.su/embed/tv/${id}/${season}/${episode}`
@@ -73,6 +93,7 @@ const SERVERS = [
     name: "MoviesAPI (Hindi & Multi-Audio)",
     badge: "Hindi Audio",
     isJioFriendly: true,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://moviesapi.club/tv/${id}-${season}-${episode}`
@@ -83,6 +104,7 @@ const SERVERS = [
     name: "MultiEmbed Stream",
     badge: "HD",
     isJioFriendly: false,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${season}&e=${episode}`
@@ -93,12 +115,15 @@ const SERVERS = [
     name: "2Embed (Backup)",
     badge: "HD",
     isJioFriendly: false,
+    isNative: false as const,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://www.2embed.cc/embedtv/${id}&s=${season}&e=${episode}`
         : `https://www.2embed.cc/embed/${id}`,
   },
 ];
+
+const SERVERS = [NATIVE_SERVER, ...IFRAME_SERVERS];
 
 export default function Watch() {
   const { id } = useParams();
@@ -115,6 +140,45 @@ export default function Watch() {
   const [activeServer, setActiveServer] = useState(0);
   const [showJioTips, setShowJioTips] = useState(false);
   const [showExternalModal, setShowExternalModal] = useState(false);
+
+  // Native player state (Cinejoy-style direct streaming)
+  const [nativeStream, setNativeStream] = useState<StreamSource | null>(null);
+  const [nativeLoading, setNativeLoading] = useState(false);
+  const [nativeError, setNativeError] = useState(false);
+
+  // Fetch direct stream when native server is selected
+  useEffect(() => {
+    if (activeServer !== 0) {
+      setNativeStream(null);
+      setNativeError(false);
+      return;
+    }
+    let cancelled = false;
+    setNativeLoading(true);
+    setNativeError(false);
+    fetchDirectStream(numericId, type, season, episode)
+      .then((result) => {
+        if (cancelled) return;
+        if (result) {
+          setNativeStream(result);
+        } else {
+          setNativeError(true);
+        }
+        setNativeLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNativeError(true);
+          setNativeLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [activeServer, numericId, type, season, episode]);
+
+  // Auto-fallback to iframe server if native fails
+  const handleNativeError = useCallback(() => {
+    setActiveServer(1); // Fall back to VidLink
+  }, []);
 
   useEffect(() => {
     if (!user || !movie) return;
@@ -154,7 +218,10 @@ export default function Watch() {
   }
 
   const title = getTitle(movie);
-  const embedUrl = SERVERS[activeServer].getUrl(type, numericId, season, episode);
+  const currentServer = SERVERS[activeServer];
+  const isNativeMode = currentServer.id === "native";
+  const embedUrl = isNativeMode ? "" : (currentServer as typeof IFRAME_SERVERS[number]).getUrl(type, numericId, season, episode);
+  const posterUrl = backdrop(movie.backdrop_path);
 
   return (
     <div className="w-full animate-fade-in pb-28 pt-20 sm:pt-6">
@@ -223,15 +290,53 @@ export default function Watch() {
       {/* Contained Cinema Video Player */}
       <div className="max-w-6xl mx-auto px-3 sm:px-6">
         <div className="relative aspect-video max-h-[72vh] w-full rounded-2xl sm:rounded-3xl overflow-hidden border border-white/15 bg-black shadow-2xl">
-          <iframe
-            key={activeServer}
-            src={embedUrl}
-            allowFullScreen
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerPolicy="origin"
-            className="w-full h-full border-0"
-            title="Movie/TV Player"
-          />
+          {isNativeMode ? (
+            // Cinejoy-style Native HLS Player — no iframes, no ads
+            nativeLoading ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-black">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
+                  <Zap className="w-6 h-6 text-amber-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-white">Finding best stream...</p>
+                  <p className="text-xs text-white/50 mt-1">Scanning direct sources for ad-free playback</p>
+                </div>
+              </div>
+            ) : nativeError ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-black">
+                <Zap className="w-10 h-10 text-amber-400/50" />
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-white/80">Direct stream not available</p>
+                  <p className="text-xs text-white/50 mt-1 max-w-xs">No direct source found for this title. Switching to iframe servers...</p>
+                </div>
+                <button
+                  onClick={handleNativeError}
+                  className="mt-2 px-5 py-2 rounded-full bg-amber-400 text-black text-xs font-bold hover:brightness-110 transition-all"
+                >
+                  Use VidLink Server Instead
+                </button>
+              </div>
+            ) : nativeStream ? (
+              <NativePlayer
+                streamUrl={nativeStream.url}
+                poster={posterUrl}
+                title={`${title} — ${nativeStream.source}`}
+                onError={handleNativeError}
+              />
+            ) : null
+          ) : (
+            // Traditional iframe embed servers
+            <iframe
+              key={activeServer}
+              src={embedUrl}
+              allowFullScreen
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="origin"
+              className="w-full h-full border-0"
+              title="Movie/TV Player"
+            />
+          )}
         </div>
 
         {/* Downward Jump Prompt to guide users down */}
@@ -292,15 +397,24 @@ export default function Watch() {
                 onClick={() => setActiveServer(index)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs whitespace-nowrap transition-all duration-200 border shrink-0 ${
                   activeServer === index
-                    ? "bg-white text-black border-white font-bold shadow-lg shadow-white/15 scale-[1.02]"
+                    ? server.id === "native"
+                      ? "bg-gradient-to-r from-amber-400 to-orange-500 text-black border-amber-400 font-bold shadow-lg shadow-amber-400/25 scale-[1.02]"
+                      : "bg-white text-black border-white font-bold shadow-lg shadow-white/15 scale-[1.02]"
+                    : server.id === "native"
+                    ? "bg-amber-400/10 text-amber-300 border-amber-400/30 hover:bg-amber-400/20 hover:text-amber-200"
                     : "bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white"
                 }`}
               >
+                {server.id === "native" && <Zap className="w-3.5 h-3.5" />}
                 <span>{server.name}</span>
                 <span
                   className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
                     activeServer === index
-                      ? "bg-black text-white"
+                      ? server.id === "native"
+                        ? "bg-black text-amber-400"
+                        : "bg-black text-white"
+                      : server.badge === "NATIVE"
+                      ? "bg-amber-400/20 text-amber-300"
                       : server.badge.includes("4K")
                       ? "bg-amber-400 text-black"
                       : "bg-white/10 text-white/60"
