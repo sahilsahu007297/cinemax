@@ -1,33 +1,70 @@
-import React, { useState, useEffect } from 'react';
-import { Film } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { Film } from "lucide-react";
 
 export function ImageWithFallback(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   const { src, alt, style, className, ...rest } = props;
-  const [currentSrc, setCurrentSrc] = useState(src);
-  const [hasTriedProxy, setHasTriedProxy] = useState(false);
+  const [attemptIndex, setAttemptIndex] = useState(0);
   const [didError, setDidError] = useState(false);
 
+  // Extract raw TMDB image path if possible
+  const getRawTmdbUrl = (url?: string): string | null => {
+    if (!url) return null;
+    if (url.includes("image.tmdb.org")) {
+      const match = url.match(/https?:\/\/image\.tmdb\.org\/[^\s&"']+/);
+      if (match) return match[0];
+      const encodedMatch = url.match(/url=([^&]+)/);
+      if (encodedMatch) {
+        try {
+          return decodeURIComponent(encodedMatch[1]);
+        } catch {
+          // ignore
+        }
+      }
+      return "https://image.tmdb.org" + url.substring(url.indexOf("/t/p/"));
+    }
+    return null;
+  };
+
+  const rawUrl = getRawTmdbUrl(src);
+
+  // Define resilient multi-CDN mirrors across global and edge networks
+  const candidateUrls = React.useMemo(() => {
+    if (!src) return [];
+    if (!rawUrl) return [src];
+
+    const tmdbPathMatch = rawUrl.match(/\/t\/p\/([^/]+)(\/.+)$/);
+    const size = tmdbPathMatch ? tmdbPathMatch[1] : "w500";
+    const path = tmdbPathMatch ? tmdbPathMatch[2] : "";
+
+    return [
+      src, // Default passed (usually wsrv.nl)
+      `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}&output=webp`,
+      `https://images.weserv.nl/?url=${encodeURIComponent(rawUrl)}&output=webp`,
+      path ? `https://cdn.statically.io/img/image.tmdb.org/t/p/${size}${path}` : "",
+      path ? `/api/img?path=${encodeURIComponent(path)}&size=${size}` : "",
+      rawUrl, // Direct TMDB
+    ].filter(Boolean) as string[];
+  }, [src, rawUrl]);
+
   useEffect(() => {
-    setCurrentSrc(src);
-    setHasTriedProxy(false);
+    setAttemptIndex(0);
     setDidError(false);
   }, [src]);
 
   const handleError = () => {
-    // If TMDB image is blocked by ISP (like Jio/Airtel in India), seamlessly fallback to wsrv.nl proxy CDN
-    if (!hasTriedProxy && currentSrc && currentSrc.includes('image.tmdb.org')) {
-      setHasTriedProxy(true);
-      // wsrv.nl provides a worldwide Cloudflare-backed proxy that is never blocked in India
-      setCurrentSrc(`https://wsrv.nl/?url=${encodeURIComponent(currentSrc)}&output=webp`);
-      return;
+    if (attemptIndex + 1 < candidateUrls.length) {
+      setAttemptIndex((prev) => prev + 1);
+    } else {
+      setDidError(true);
     }
-    setDidError(true);
   };
 
-  if (didError || !currentSrc) {
+  const activeSrc = candidateUrls[attemptIndex] || src;
+
+  if (didError || !activeSrc) {
     return (
       <div
-        className={`flex flex-col items-center justify-center bg-[#12131a] text-center align-middle border border-white/[0.06] ${className ?? ''}`}
+        className={`flex flex-col items-center justify-center bg-[#12131a] text-center align-middle border border-white/[0.06] ${className ?? ""}`}
         style={style}
       >
         <Film className="w-8 h-8 text-white/20 mb-1" />
@@ -40,7 +77,7 @@ export function ImageWithFallback(props: React.ImgHTMLAttributes<HTMLImageElemen
 
   return (
     <img
-      src={currentSrc}
+      src={activeSrc}
       alt={alt}
       className={className}
       style={style}

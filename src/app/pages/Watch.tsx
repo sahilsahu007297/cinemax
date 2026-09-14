@@ -8,12 +8,14 @@ import {
   Download,
   ArrowDown,
   Sparkles,
-  Info,
+  Subtitles,
+  Airplay,
 } from "lucide-react";
 import { useDetail } from "../components/useTMDB";
 import { useAuth } from "../components/auth";
 import { getYear, getTitle } from "../components/tmdb";
 import { DownloadManager } from "../components/DownloadManager";
+import { ExternalPlayerModal } from "../components/ExternalPlayerModal";
 
 const SERVERS = [
   {
@@ -112,6 +114,7 @@ export default function Watch() {
   const { user, saveProgress } = useAuth();
   const [activeServer, setActiveServer] = useState(0);
   const [showJioTips, setShowJioTips] = useState(false);
+  const [showExternalModal, setShowExternalModal] = useState(false);
 
   useEffect(() => {
     if (!user || !movie) return;
@@ -166,6 +169,16 @@ export default function Watch() {
 
         {/* Quick Action Jump Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* External Player & Subtitles Button */}
+          <button
+            onClick={() => setShowExternalModal(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full glass-pill text-white font-semibold text-xs hover:bg-white/20 active:scale-95 transition-all shadow-md"
+          >
+            <Airplay className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Apple / VLC Player & Subtitles</span>
+          </button>
+
+          {/* Jump to 4K Downloads Button */}
           <button
             onClick={scrollToDownloads}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-black font-bold text-xs hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-500/20"
@@ -207,7 +220,7 @@ export default function Watch() {
         </div>
       )}
 
-      {/* Contained Cinema Video Player (Comfortably sized with margins so page scrolling is effortless) */}
+      {/* Contained Cinema Video Player */}
       <div className="max-w-6xl mx-auto px-3 sm:px-6">
         <div className="relative aspect-video max-h-[72vh] w-full rounded-2xl sm:rounded-3xl overflow-hidden border border-white/15 bg-black shadow-2xl">
           <iframe
@@ -229,13 +242,23 @@ export default function Watch() {
             <span className="text-amber-400 font-medium">{SERVERS[activeServer].name}</span>
           </div>
 
-          <button
-            onClick={scrollToDownloads}
-            className="inline-flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-semibold transition-colors group cursor-pointer"
-          >
-            <span>Scroll down for 4K Torrents & Fast Downloads</span>
-            <ArrowDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowExternalModal(true)}
+              className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-semibold transition-colors cursor-pointer"
+            >
+              <Subtitles className="w-3.5 h-3.5" />
+              <span>Get Subtitles (.SRT / .VTT)</span>
+            </button>
+
+            <button
+              onClick={scrollToDownloads}
+              className="inline-flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-semibold transition-colors group cursor-pointer"
+            >
+              <span>Scroll down for 4K Downloads</span>
+              <ArrowDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -309,6 +332,20 @@ export default function Watch() {
           />
         </div>
       </div>
+
+      {/* External Player & Subtitles Modal */}
+      {showExternalModal && (
+        <ExternalPlayerModal
+          title={title}
+          streamUrl={embedUrl}
+          imdbId={movie.external_ids?.imdb_id}
+          tmdbId={numericId}
+          type={type}
+          season={season}
+          episode={episode}
+          onClose={() => setShowExternalModal(false)}
+        />
+      )}
     </div>
   );
 }

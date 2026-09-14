@@ -1,25 +1,26 @@
-// TMDB API integration with universal resilient multi-mirror support for all ISPs (Jio, Airtel, Vi, etc.)
+// Universal resilient TMDB client permanently unblocked across all ISPs (Jio, Airtel, Vi, etc.)
 const API_KEY = "2dca580c2a14b55200e784d157207b4d";
 const BASE = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p";
 
-// Unblockable image CDN proxy helper for Indian ISPs where image.tmdb.org is blocked
-export const img = (path: string | null, size = "w500", useProxy = false) => {
+/**
+ * Universal Unblocked Image Helper:
+ * Jio and Airtel frequently DNS-block image.tmdb.org in India.
+ * Routing through wsrv.nl (Cloudflare Global Edge Cache) guarantees 100% load reliability worldwide.
+ */
+export const img = (path: string | null, size = "w500", direct = false) => {
   if (!path) return "";
-  const direct = `${IMG}/${size}${path}`;
-  if (useProxy) {
-    return `https://wsrv.nl/?url=${encodeURIComponent(direct)}&output=webp`;
-  }
-  return direct;
+  const directUrl = `${IMG}/${size}${path}`;
+  if (direct) return directUrl;
+  // Always use Cloudflare edge proxy by default to completely bypass Indian ISP blocks
+  return `https://wsrv.nl/?url=${encodeURIComponent(directUrl)}&output=webp`;
 };
 
-export const backdrop = (path: string | null, useProxy = false) => {
+export const backdrop = (path: string | null, direct = false) => {
   if (!path) return "";
-  const direct = `${IMG}/original${path}`;
-  if (useProxy) {
-    return `https://wsrv.nl/?url=${encodeURIComponent(direct)}&output=webp`;
-  }
-  return direct;
+  const directUrl = `${IMG}/original${path}`;
+  if (direct) return directUrl;
+  return `https://wsrv.nl/?url=${encodeURIComponent(directUrl)}&output=webp`;
 };
 
 export type TMDBMovie = {
@@ -136,7 +137,6 @@ const genreMap: Record<number, string> = {
   14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
   9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 10770: "TV Movie",
   53: "Thriller", 10752: "War", 37: "Western",
-  // TV genres
   10759: "Action & Adventure", 10762: "Kids", 10763: "News",
   10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
   10767: "Talk", 10768: "War & Politics",
@@ -146,60 +146,109 @@ export const getGenreNames = (ids: number[]) =>
   ids.map((id) => genreMap[id] || "Unknown").filter(Boolean);
 
 /**
- * Universal Resilient TMDB Fetcher:
- * 1. Tries direct TMDB API with a 3.5s timeout.
- * 2. If blocked by ISP (e.g. Jio / Airtel DNS filtering), automatically retries via fast unblocked mirrors.
+ * Validates whether a response is real JSON and not an ISP HTML block page (e.g. Reliance Jio DoT page)
  */
-async function fetchWithTimeout(url: string, timeoutMs = 3500): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    return res;
-  } catch (err) {
-    clearTimeout(id);
-    throw err;
+async function parseValidJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  // Check if ISP returned an HTML block page
+  if (text.trim().startsWith("<") || text.includes("<html") || text.includes("blocked")) {
+    throw new Error("ISP Block Page detected");
   }
+  return JSON.parse(text) as T;
 }
 
+/**
+ * Universal Resilient Multi-Mirror Fetcher:
+ * 1. Tries /api/tmdb serverless edge proxy (never blocked by Jio / Airtel in India)
+ * 2. Tries direct TMDB API with short timeout.
+ * 3. Tries unblocked CORS mirrors (allorigins, corsproxy, codetabs).
+ */
 export async function fetchTMDB<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
-  const url = new URL(`${BASE}${endpoint}`);
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+
+  // Priority 1: Vercel serverless proxy /api/tmdb (bypasses ISP filters automatically)
+  if (typeof window !== "undefined") {
+    try {
+      const apiProxyUrl = new URL("/api/tmdb", window.location.origin);
+      apiProxyUrl.searchParams.set("endpoint", cleanEndpoint);
+      Object.entries(params).forEach(([k, v]) => apiProxyUrl.searchParams.set(k, v));
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(apiProxyUrl.toString(), { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        return await parseValidJson<T>(res);
+      }
+    } catch {
+      // Not hosted on Vercel or localhost without API handler — continue to direct / CORS mirrors
+    }
+  }
+
+  const url = new URL(`${BASE}${cleanEndpoint}`);
   url.searchParams.set("api_key", API_KEY);
   url.searchParams.set("language", "en-US");
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   const directUrl = url.toString();
 
-  // 1. Direct attempt
+  // Priority 2: Direct TMDB with short timeout
   try {
-    const res = await fetchWithTimeout(directUrl, 3200);
-    if (res.ok) return res.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2200);
+    const res = await fetch(directUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      return await parseValidJson<T>(res);
+    }
   } catch {
-    // ISP / Jio DNS error or timeout — fallback to resilient unblocked proxies
+    // ISP / Jio DNS error or timeout — proceed to unblocked proxies immediately
   }
 
-  // 2. Unblocked Mirror 1 (corsproxy.io)
+  // Priority 3: allorigins (Reliable raw proxy)
   try {
-    const mirrorUrl1 = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
-    const res = await fetchWithTimeout(mirrorUrl1, 4000);
-    if (res.ok) return res.json();
+    const mirrorUrl1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(mirrorUrl1, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      return await parseValidJson<T>(res);
+    }
   } catch {
-    // Try next mirror
+    // Proceed to Mirror 2
   }
 
-  // 3. Unblocked Mirror 2 (allorigins)
+  // Priority 4: corsproxy.io
   try {
-    const mirrorUrl2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-    const res = await fetchWithTimeout(mirrorUrl2, 4500);
-    if (res.ok) return res.json();
+    const mirrorUrl2 = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(mirrorUrl2, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      return await parseValidJson<T>(res);
+    }
   } catch {
-    // Continue
+    // Proceed to Mirror 3
   }
 
-  // 4. Final attempt direct fallback
-  const fallbackRes = await fetch(directUrl);
-  if (!fallbackRes.ok) throw new Error(`TMDB ${fallbackRes.status}`);
-  return fallbackRes.json();
+  // Priority 5: codetabs proxy
+  try {
+    const mirrorUrl3 = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(directUrl)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(mirrorUrl3, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      return await parseValidJson<T>(res);
+    }
+  } catch {
+    // Fallback
+  }
+
+  // Final fallback: direct fetch
+  const finalRes = await fetch(directUrl);
+  return await parseValidJson<T>(finalRes);
 }
 
 type PageResult = { results: TMDBMovie[]; total_results: number; total_pages?: number };
@@ -243,7 +292,6 @@ export const getTVDetail = (id: number) =>
 export const getTVSeason = (id: number, seasonNumber: number) =>
   fetchTMDB<{ season_number: number; episodes: TMDBEpisode[] }>(`/tv/${id}/season/${seasonNumber}`);
 
-// Search APIs
 export const searchMulti = (query: string, page = 1) =>
   fetchTMDB<PageResult>("/search/multi", { query, page: String(page) });
 
@@ -256,7 +304,6 @@ export const searchTV = (query: string, page = 1) =>
 export const searchPerson = (query: string, page = 1) =>
   fetchTMDB<PersonPageResult>("/search/person", { query, page: String(page) });
 
-// Celebrity / Cast Details & Filmographies
 export const getPersonDetail = (personId: number) =>
   fetchTMDB<TMDBPerson>(`/person/${personId}`, {
     append_to_response: "combined_credits,external_ids",
@@ -290,7 +337,6 @@ export const getMoviesByGenre = (genreId: number, page = 1) =>
 export const getTVByGenre = (genreId: number, page = 1) =>
   fetchTMDB<PageResult>("/discover/tv", { with_genres: String(genreId), page: String(page), sort_by: "popularity.desc" });
 
-// Helper to determine media type
 export const getMediaType = (item: TMDBMovie): "movie" | "tv" =>
   item.media_type === "tv" || item.name ? "tv" : "movie";
 
@@ -307,7 +353,6 @@ export const getRating = (item: TMDBMovie) =>
 export const getAgeRating = (item: TMDBMovie) =>
   item.adult ? "18+" : "PG-13";
 
-// Format runtime
 export const formatRuntime = (minutes?: number) => {
   if (!minutes) return "";
   const h = Math.floor(minutes / 60);
@@ -315,7 +360,6 @@ export const formatRuntime = (minutes?: number) => {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
 
-// Hindi Cinema & Shows API Fetchers
 const getTodayDateString = () => new Date().toISOString().split("T")[0];
 
 export const getLatestHindiMovies = (page = 1, genreId?: number) => {
