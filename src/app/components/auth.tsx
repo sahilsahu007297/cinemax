@@ -41,6 +41,11 @@ type AuthContextValue = {
   favorites: FavoriteItem[];
   isFavorite: (id: number, mediaType?: "movie" | "tv") => boolean;
   toggleFavorite: (movie: TMDBMovie, mediaType?: "movie" | "tv") => Promise<boolean>;
+  ratings: Record<string, number>;
+  rateTitle: (id: number, rating: number, mediaType?: "movie" | "tv") => Promise<void>;
+  getUserRating: (id: number, mediaType?: "movie" | "tv") => number | undefined;
+  interests: string[];
+  toggleInterest: (interestId: string) => void;
   setSupabaseKeys: (url: string, key: string) => void;
 };
 
@@ -59,6 +64,38 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function getLocalRatings(userId: string): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(`cinemax_ratings_${userId}`) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function setLocalRatings(userId: string, ratings: Record<string, number>) {
+  try {
+    localStorage.setItem(`cinemax_ratings_${userId}`, JSON.stringify(ratings));
+  } catch {
+    // Ignore
+  }
+}
+
+function getLocalInterests(userId: string): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(`cinemax_interests_${userId}`) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setLocalInterests(userId: string, interests: string[]) {
+  try {
+    localStorage.setItem(`cinemax_interests_${userId}`, JSON.stringify(interests));
+  } catch {
+    // Ignore
+  }
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -66,6 +103,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [continueWatching, setContinueWatching] = useState<ContinueItem[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [interests, setInterests] = useState<string[]>([]);
   const [credentials, setCredentials] = useState(() => getSupabaseCredentials());
 
   const supabase = useMemo(() => getSupabase(), [credentials.url, credentials.key]);
@@ -89,9 +128,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(u);
             const favs = await syncFavorites(u.id, supabase, getLocalFavorites(u.id));
             const cont = await syncContinueWatching(u.id, supabase, getLocalContinue(u.id));
+            const r = session.user.user_metadata?.ratings || getLocalRatings(u.id);
+            const i = session.user.user_metadata?.interests || getLocalInterests(u.id);
             if (mounted) {
               setFavorites(favs);
               setContinueWatching(cont);
+              setRatings(r);
+              setInterests(i);
             }
             setLoading(false);
             return;
@@ -109,6 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(localUser);
           setFavorites(getLocalFavorites(localUser.id));
           setContinueWatching(getLocalContinue(localUser.id));
+          setRatings(getLocalRatings(localUser.id));
+          setInterests(getLocalInterests(localUser.id));
         }
       }
 
@@ -133,10 +178,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const cont = await syncContinueWatching(u.id, supabase, getLocalContinue(u.id));
           setFavorites(favs);
           setContinueWatching(cont);
+          setRatings(session.user.user_metadata?.ratings || getLocalRatings(u.id));
+          setInterests(session.user.user_metadata?.interests || getLocalInterests(u.id));
         } else if (event === "SIGNED_OUT") {
           setUser(null);
           setFavorites([]);
           setContinueWatching([]);
+          setRatings({});
+          setInterests([]);
         }
       });
 
@@ -156,6 +205,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user?.id) {
       setFavorites(getLocalFavorites(user.id));
       setContinueWatching(getLocalContinue(user.id));
+      setRatings(getLocalRatings(user.id));
+      setInterests(getLocalInterests(user.id));
       if (supabase) {
         syncFavorites(user.id, supabase, getLocalFavorites(user.id)).then(setFavorites);
         syncContinueWatching(user.id, supabase, getLocalContinue(user.id)).then(setContinueWatching);
@@ -163,6 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setFavorites([]);
       setContinueWatching([]);
+      setRatings({});
+      setInterests([]);
     }
   }, [user?.id, supabase]);
 
@@ -182,10 +235,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: normEmail,
             password,
           });
-          if (error) {
-            // If user not confirmed or error
-            return error.message;
-          }
+          if (error) return error.message;
+
           if (data.user) {
             const u: User = {
               id: data.user.id,
@@ -198,6 +249,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const cont = await syncContinueWatching(u.id, supabase, getLocalContinue(u.id));
             setFavorites(favs);
             setContinueWatching(cont);
+            setRatings(data.user.user_metadata?.ratings || getLocalRatings(u.id));
+            setInterests(data.user.user_metadata?.interests || getLocalInterests(u.id));
             return null;
           }
         } catch (err: any) {
@@ -215,6 +268,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(account);
       setFavorites(getLocalFavorites(account.id));
       setContinueWatching(getLocalContinue(account.id));
+      setRatings(getLocalRatings(account.id));
+      setInterests(getLocalInterests(account.id));
       return null;
     },
 
@@ -247,6 +302,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(u);
             setFavorites([]);
             setContinueWatching([]);
+            setRatings({});
+            setInterests([]);
             return null;
           }
         } catch (err: any) {
@@ -270,6 +327,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newAccount);
       setFavorites([]);
       setContinueWatching([]);
+      setRatings({});
+      setInterests([]);
       return null;
     },
 
@@ -285,6 +344,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setFavorites([]);
       setContinueWatching([]);
+      setRatings({});
+      setInterests([]);
     },
 
     continueWatching,
@@ -296,7 +357,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ...item,
         media_type: mediaType,
         updatedAt: Date.now(),
-        // Compute remaining time if not provided
         timeLeftMinutes: item.timeLeftMinutes ?? Math.max(10, Math.round((100 - (item.progress || 10)) * 1.2)),
       };
 
@@ -360,11 +420,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
 
+    ratings,
+
+    async rateTitle(id: number, score: number, mediaType?: "movie" | "tv") {
+      if (!user) return;
+      const key = `${mediaType || "movie"}-${id}`;
+      const nextRatings = { ...ratings, [key]: score };
+      setRatings(nextRatings);
+      setLocalRatings(user.id, nextRatings);
+      if (supabase) {
+        await supabase.auth.updateUser({
+          data: { ratings: nextRatings },
+        }).catch(() => null);
+      }
+    },
+
+    getUserRating(id: number, mediaType?: "movie" | "tv") {
+      const key = `${mediaType || "movie"}-${id}`;
+      return ratings[key];
+    },
+
+    interests,
+
+    toggleInterest(interestId: string) {
+      if (!user) return;
+      const next = interests.includes(interestId)
+        ? interests.filter((i) => i !== interestId)
+        : [...interests, interestId];
+      setInterests(next);
+      setLocalInterests(user.id, next);
+      if (supabase) {
+        supabase.auth.updateUser({
+          data: { interests: next },
+        }).catch(() => null);
+      }
+    },
+
     setSupabaseKeys(url: string, key: string) {
       saveCustomSupabaseConfig(url, key);
       setCredentials(getSupabaseCredentials());
     },
-  }), [user, loading, isSupabaseActive, credentials.url, supabase, continueWatching, favorites]);
+  }), [user, loading, isSupabaseActive, credentials.url, supabase, continueWatching, favorites, ratings, interests]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

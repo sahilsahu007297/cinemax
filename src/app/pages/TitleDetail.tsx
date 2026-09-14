@@ -3,18 +3,22 @@ import { useEffect, useState } from "react";
 import {
   Play,
   Plus,
-  Share2,
   Star,
   ChevronLeft,
   Download,
   Heart,
   Film,
   X,
-  MessageSquarePlus,
-  Check,
+  ShieldAlert,
+  Lightbulb,
+  Quote,
+  AlertTriangle,
+  MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import { useDetail } from "../components/useTMDB";
 import { MovieCard } from "../components/MovieCard";
+import { CelebrityModal } from "../components/CelebrityModal";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import {
   backdrop,
@@ -26,6 +30,13 @@ import {
   getTVSeason,
   type TMDBEpisode,
 } from "../components/tmdb";
+import {
+  getParentsGuide,
+  getMovieTrivia,
+  getMovieQuotes,
+  getMovieGoofs,
+  type ParentsGuide,
+} from "../lib/imdbData";
 import { DownloadManager } from "../components/DownloadManager";
 import { useAuth } from "../components/auth";
 
@@ -40,7 +51,7 @@ interface UserReview {
 export default function TitleDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, isFavorite, toggleFavorite } = useAuth();
+  const { user, isFavorite, toggleFavorite, rateTitle, getUserRating } = useAuth();
 
   // Parse "movie-12345" or "tv-12345"
   const [mediaType, rawId] = (id ?? "").split("-");
@@ -52,6 +63,19 @@ export default function TitleDetail() {
   const [showFullSynopsis, setShowFullSynopsis] = useState(false);
   const [showTrailerModal, setShowTrailerModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [activeExtrasTab, setActiveExtrasTab] = useState<
+    "cast" | "parentsGuide" | "trivia" | "quotes" | "goofs" | "reviews"
+  >("cast");
+
+  // 1-10 User Rating State
+  const currentRating = getUserRating(numericId, type);
+  const [hoverRating, setHoverRating] = useState<number | null>(null);
+  const [showRatingSuccess, setShowRatingSuccess] = useState(false);
+
+  // Selected celebrity for modal
+  const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
+
+  // Custom Reviews State
   const [newReviewRating, setNewReviewRating] = useState(9);
   const [newReviewComment, setNewReviewComment] = useState("");
   const [customReviews, setCustomReviews] = useState<UserReview[]>([]);
@@ -61,7 +85,7 @@ export default function TitleDetail() {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [id]);
 
-  // Load custom stored reviews for this title
+  // Load reviews from local storage
   useEffect(() => {
     try {
       const stored = localStorage.getItem(`cinemax_reviews_${numericId}`);
@@ -84,7 +108,7 @@ export default function TitleDetail() {
   const rating = getRating(movie);
   const runtime = formatRuntime(movie.runtime);
   const genres = movie.genres?.map((g) => g.name) || [];
-  const cast = movie.credits?.cast?.slice(0, 8) || [];
+  const cast = movie.credits?.cast?.slice(0, 10) || [];
   const similar = movie.similar?.results?.filter((m) => m.poster_path).slice(0, 6) || [];
   const seasons =
     type === "tv"
@@ -92,7 +116,12 @@ export default function TitleDetail() {
       : [];
   const favorited = isFavorite(movie.id, type);
 
-  // Extract trailer video
+  // IMDb Extras Data
+  const parentsGuide: ParentsGuide = getParentsGuide(movie);
+  const triviaList = getMovieTrivia(movie);
+  const quotesList = getMovieQuotes(movie);
+  const goofsList = getMovieGoofs(movie);
+
   const trailerVideo =
     movie.videos?.results?.find(
       (v) => (v.type === "Trailer" || v.type === "Teaser") && v.site === "YouTube"
@@ -104,6 +133,16 @@ export default function TitleDetail() {
       return;
     }
     await toggleFavorite(movie, type);
+  };
+
+  const handleRate = async (score: number) => {
+    if (!user) {
+      navigate("/signin");
+      return;
+    }
+    await rateTitle(numericId, score, type);
+    setShowRatingSuccess(true);
+    setTimeout(() => setShowRatingSuccess(false), 2500);
   };
 
   const handleAddReview = (e: React.FormEvent) => {
@@ -131,7 +170,6 @@ export default function TitleDetail() {
     setShowReviewModal(false);
   };
 
-  // Pre-seed sample reviews matching Screenshot 3
   const allReviews: UserReview[] = [
     ...customReviews,
     {
@@ -152,6 +190,22 @@ export default function TitleDetail() {
     },
   ];
 
+  // Helper for severity color
+  const getSeverityBadge = (level: string) => {
+    switch (level) {
+      case "None":
+        return "bg-emerald-500/15 text-emerald-400 border-emerald-500/25";
+      case "Mild":
+        return "bg-sky-500/15 text-sky-400 border-sky-500/25";
+      case "Moderate":
+        return "bg-amber-500/15 text-amber-400 border-amber-500/25";
+      case "Severe":
+        return "bg-rose-500/15 text-rose-400 border-rose-500/25";
+      default:
+        return "bg-white/10 text-white/70 border-white/20";
+    }
+  };
+
   return (
     <div className="animate-fade-in pb-24 select-none">
       {/* Hero & Backdrop Container */}
@@ -169,7 +223,7 @@ export default function TitleDetail() {
         <div className="absolute inset-0 bg-gradient-to-t from-[#08090c] via-[#08090c]/40 to-transparent" />
         <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#08090c]/80 via-transparent to-transparent" />
 
-        {/* Top Floating Navigation: Back button + Top-Right Actions (Screenshot 3) */}
+        {/* Top Floating Navigation */}
         <div className="relative z-30 pt-20 sm:pt-8 px-4 sm:px-8 lg:px-12 flex items-center justify-between">
           <Link
             to="/"
@@ -180,7 +234,6 @@ export default function TitleDetail() {
           </Link>
 
           <div className="flex items-center gap-2.5">
-            {/* Plus / Watchlist */}
             <button
               onClick={handleFavorite}
               title="Add to List"
@@ -189,7 +242,6 @@ export default function TitleDetail() {
               <Plus className="w-5 h-5" />
             </button>
 
-            {/* Heart Favorite */}
             <button
               onClick={handleFavorite}
               title={favorited ? "Saved in Favorites" : "Add to Favorites"}
@@ -202,7 +254,6 @@ export default function TitleDetail() {
               <Heart className={`w-4 h-4 ${favorited ? "fill-white" : ""}`} />
             </button>
 
-            {/* Download */}
             <button
               onClick={() => setShowDownloads((prev) => !prev)}
               title="Download 4K"
@@ -213,17 +264,24 @@ export default function TitleDetail() {
           </div>
         </div>
 
-        {/* Floating Frosted Glass Bottom Sheet (Screenshot 3) */}
+        {/* Floating Frosted Glass Bottom Sheet */}
         <div className="relative z-30 px-4 sm:px-8 lg:px-12 pb-6 pt-16">
           <div className="max-w-xl p-6 sm:p-8 rounded-[32px] glass-sheet border border-white/20 shadow-2xl backdrop-blur-3xl animate-fade-in">
-            {/* Title + HD Badge */}
-            <div className="flex items-center justify-between gap-3">
+            {/* Title + HD Badge + IMDb Yellow Badge */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
                 {title}
               </h1>
-              <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold tracking-wider uppercase bg-white/20 text-white border border-white/30 shrink-0">
-                HD
-              </span>
+              <div className="flex items-center gap-2">
+                {/* Official IMDb Community Scoring Badge */}
+                <div className="px-2.5 py-0.5 rounded-md text-[11px] font-black tracking-wide bg-[#f5c518] text-black shadow-sm flex items-center gap-1">
+                  <span>IMDb</span>
+                  <span className="font-bold">{rating}</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wider uppercase bg-white/20 text-white border border-white/30">
+                  HD
+                </span>
+              </div>
             </div>
 
             {/* Genres Row */}
@@ -231,11 +289,11 @@ export default function TitleDetail() {
               {genres.slice(0, 3).join(", ")}
             </div>
 
-            {/* Rating & Runtime Row: e.g. ⭐ 8.2 · 2019 · 102 min */}
-            <div className="mt-3 flex items-center gap-2.5 text-xs text-white/70">
+            {/* Rating & Runtime Row */}
+            <div className="mt-3 flex items-center gap-2.5 text-xs text-white/70 flex-wrap">
               <span className="flex items-center gap-1 font-semibold text-amber-400">
                 <Star className="w-3.5 h-3.5 fill-amber-400" />
-                <span>{rating}</span>
+                <span>{rating} / 10</span>
               </span>
               <span>·</span>
               <span>{year}</span>
@@ -251,6 +309,54 @@ export default function TitleDetail() {
                   <span>{movie.number_of_seasons || 1} Season(s)</span>
                 </>
               )}
+              <span>·</span>
+              <span className="px-1.5 py-0.2 rounded bg-white/10 text-[10px] font-bold">
+                {parentsGuide.certification}
+              </span>
+            </div>
+
+            {/* Interactive 1–10 Scale User Rating Widget */}
+            <div className="mt-4 pt-3 border-t border-white/10 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-white/60 font-medium flex items-center gap-1">
+                  <Star className="w-3 h-3 text-amber-400" />
+                  <span>Your Rating:</span>
+                  <strong className="text-amber-400 font-bold ml-1">
+                    {hoverRating || currentRating ? `${hoverRating || currentRating}/10` : "Rate this"}
+                  </strong>
+                </span>
+                {showRatingSuccess && (
+                  <span className="text-[10px] text-emerald-400 font-semibold animate-fade-in">
+                    Rating saved & synced!
+                  </span>
+                )}
+              </div>
+
+              {/* 10 Stars row */}
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+                  const active = (hoverRating || currentRating || 0) >= star;
+                  return (
+                    <button
+                      key={star}
+                      type="button"
+                      onMouseEnter={() => setHoverRating(star)}
+                      onMouseLeave={() => setHoverRating(null)}
+                      onClick={() => handleRate(star)}
+                      title={`Rate ${star}/10`}
+                      className="p-0.5 group focus:outline-none transition-transform hover:scale-125"
+                    >
+                      <Star
+                        className={`w-4 h-4 transition-colors ${
+                          active
+                            ? "fill-amber-400 text-amber-400"
+                            : "text-white/25 group-hover:text-amber-300"
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Synopsis with "...more" link */}
@@ -280,7 +386,7 @@ export default function TitleDetail() {
               )}
             </div>
 
-            {/* Buttons: "Watch now" (white pill) & "Trailer" (frosted outline pill) */}
+            {/* Buttons: "Watch now" & "Trailer" */}
             <div className="mt-6 flex items-center gap-3">
               <Link
                 to={`/watch/${mediaType}-${rawId}`}
@@ -303,7 +409,7 @@ export default function TitleDetail() {
       </div>
 
       {/* Main Content Body */}
-      <div className="px-4 sm:px-8 lg:px-12 max-w-7xl mx-auto mt-6 space-y-10">
+      <div className="px-4 sm:px-8 lg:px-12 max-w-7xl mx-auto mt-8 space-y-10">
         {/* 4K Fast Download Manager */}
         {showDownloads && (
           <div className="rounded-3xl glass-card p-6 border border-white/15 animate-fade-in">
@@ -322,12 +428,245 @@ export default function TitleDetail() {
           <SeasonEpisodes tvId={numericId} seasons={seasons} />
         )}
 
-        {/* Related Movies Section (Screenshot 3) */}
+        {/* ========================================================================= */}
+        {/* COMPREHENSIVE IMDB EXTRAS & GUIDES SUITE */}
+        {/* ========================================================================= */}
+        <section className="rounded-3xl glass-sheet p-6 sm:p-8 border border-white/15 shadow-2xl">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <div className="px-2 py-0.5 rounded bg-[#f5c518] text-black font-black text-xs">
+                IMDb
+              </div>
+              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                Guides, Trivia & Community Media
+              </h2>
+            </div>
+
+            {/* Extras Tab Selector */}
+            <div className="flex items-center gap-1 p-1 rounded-2xl bg-white/[0.06] border border-white/10 overflow-x-auto [scrollbar-width:none]">
+              {[
+                { id: "cast", label: "Cast & Crew", icon: Sparkles },
+                { id: "parentsGuide", label: "Parents Guide", icon: ShieldAlert },
+                { id: "trivia", label: "Trivia", icon: Lightbulb },
+                { id: "quotes", label: "Quotes", icon: Quote },
+                { id: "goofs", label: "Goofs", icon: AlertTriangle },
+                { id: "reviews", label: "Reviews", icon: MessageSquare },
+              ].map(({ id: tabId, label, icon: Icon }) => (
+                <button
+                  key={tabId}
+                  onClick={() => setActiveExtrasTab(tabId as any)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                    activeExtrasTab === tabId
+                      ? "bg-white text-black shadow-md"
+                      : "text-white/60 hover:text-white"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* TAB 1: CAST & CREW FILMOGRAPHIES */}
+          {activeExtrasTab === "cast" && (
+            <div className="space-y-4">
+              <div className="text-xs text-white/50">
+                Click any actor or director to view their full filmography, biography, and titles available to stream.
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                {cast.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedPersonId(c.id)}
+                    className="p-3 rounded-2xl glass-card border border-white/[0.08] hover:border-white/30 text-left transition-all flex flex-col items-center text-center group"
+                  >
+                    <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-2 border-2 border-white/15 shadow-xl bg-white/5">
+                      <ImageWithFallback
+                        src={img(c.profile_path, "w185")}
+                        alt={c.name}
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                      />
+                    </div>
+                    <div className="text-xs font-bold text-white truncate w-full group-hover:text-amber-300 transition-colors">
+                      {c.name}
+                    </div>
+                    <div className="text-[10px] text-white/40 truncate w-full">
+                      {c.character || "Cast Member"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: PARENTS GUIDE */}
+          {activeExtrasTab === "parentsGuide" && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-white/50 uppercase tracking-wider font-semibold">
+                    Content Rating & Advisory
+                  </span>
+                  <div className="text-lg font-bold text-white mt-0.5">
+                    Rated {parentsGuide.certification}
+                  </div>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-white/10 border border-white/20 text-white">
+                  Family Guidance Advisory
+                </span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[
+                  { title: "Sex & Nudity", data: parentsGuide.sexAndNudity },
+                  { title: "Violence & Gore", data: parentsGuide.violenceAndGore },
+                  { title: "Profanity", data: parentsGuide.profanity },
+                  { title: "Alcohol, Drugs & Smoking", data: parentsGuide.alcoholDrugs },
+                  { title: "Frightening & Intense Scenes", data: parentsGuide.frighteningIntense },
+                ].map(({ title: categoryTitle, data }) => (
+                  <div
+                    key={categoryTitle}
+                    className="p-4 rounded-2xl glass-card border border-white/10 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white">{categoryTitle}</span>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${getSeverityBadge(
+                          data.level
+                        )}`}
+                      >
+                        {data.level}
+                      </span>
+                    </div>
+                    <p className="text-xs text-white/70 leading-relaxed">{data.summary}</p>
+                    <ul className="text-[11px] text-white/50 list-disc list-inside space-y-1 pt-1">
+                      {data.items.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: TRIVIA & BEHIND-THE-SCENES */}
+          {activeExtrasTab === "trivia" && (
+            <div className="space-y-3">
+              <div className="text-xs text-white/50 mb-2">
+                Verified behind-the-scenes facts, stunt choreography secrets, and production trivia.
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {triviaList.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-4 rounded-2xl glass-card border border-white/10 space-y-2"
+                  >
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      {item.category}
+                    </span>
+                    <p className="text-xs text-white/75 leading-relaxed">{item.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: MEMORABLE QUOTES */}
+          {activeExtrasTab === "quotes" && (
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {quotesList.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-4 rounded-2xl glass-card border border-white/10 space-y-2 relative"
+                  >
+                    <Quote className="w-5 h-5 text-amber-400/40 absolute top-3 right-3" />
+                    <p className="text-xs sm:text-sm text-white/90 italic font-medium leading-relaxed pr-6">
+                      "{item.quote}"
+                    </p>
+                    <div className="text-[11px] text-white/50 font-bold pt-1">
+                      — {item.character}
+                      {item.actor ? ` (${item.actor})` : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: GOOFS & INCONSISTENCIES */}
+          {activeExtrasTab === "goofs" && (
+            <div className="space-y-3">
+              <div className="text-xs text-white/50 mb-2">
+                Documented continuity slips, audio/visual dubbing variations, and technical trivia.
+              </div>
+              <div className="space-y-2.5">
+                {goofsList.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-4 rounded-2xl glass-card border border-white/10 flex items-start gap-3"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                        {item.type}
+                      </span>
+                      <p className="text-xs text-white/70 mt-0.5 leading-relaxed">
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: REVIEWS & COMMUNITY DISCUSSIONS */}
+          {activeExtrasTab === "reviews" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/50">
+                  {allReviews.length} community reviews from verified viewers
+                </span>
+                <button
+                  onClick={() => setShowReviewModal(true)}
+                  className="px-3.5 py-1.5 rounded-full bg-white text-black text-xs font-semibold hover:bg-white/85 transition-all flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Write Review</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {allReviews.map((rev) => (
+                  <div
+                    key={rev.id}
+                    className="p-4 sm:p-5 rounded-2xl glass-card border border-white/10 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                        <Star className="w-3.5 h-3.5 fill-amber-400" />
+                        <span>{rev.rating}/10</span>
+                      </div>
+                      <span className="text-[11px] text-white/40">{rev.date}</span>
+                    </div>
+                    <div className="text-xs font-bold text-white/90">{rev.author}</div>
+                    <p className="text-xs text-white/60 leading-relaxed">{rev.comment}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Related Movies Section */}
         {similar.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                Related movies
+                More like this
               </h3>
               <Link to="/browse" className="text-xs text-white/40 hover:text-white">
                 View all
@@ -340,83 +679,15 @@ export default function TitleDetail() {
             </div>
           </section>
         )}
-
-        {/* Top Cast Section with Circular Portraits (Screenshot 3) */}
-        {cast.length > 0 && (
-          <section>
-            <h3 className="text-base sm:text-lg font-bold text-white tracking-tight mb-4">
-              Top cast
-            </h3>
-            <div className="flex gap-4 overflow-x-auto pb-2 [scrollbar-width:none]">
-              {cast.map((c) => (
-                <div key={c.id} className="flex flex-col items-center text-center shrink-0 w-20 sm:w-24">
-                  <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full overflow-hidden border-2 border-white/15 shadow-xl bg-white/5 mb-2">
-                    {c.profile_path ? (
-                      <img
-                        src={img(c.profile_path, "w185")}
-                        alt={c.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white/30 text-base font-bold">
-                        {c.name.charAt(0)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-xs font-medium text-white truncate w-full">
-                    {c.name}
-                  </div>
-                  <div className="text-[10px] text-white/40 truncate w-full">
-                    {c.character || "Actor"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Reviews Section matching Screenshot 3 */}
-        <section className="pt-2">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                Reviews
-              </h3>
-              <span className="text-xs text-white/40 font-medium">
-                {allReviews.length} &gt;
-              </span>
-            </div>
-
-            <button
-              onClick={() => setShowReviewModal(true)}
-              className="w-8 h-8 rounded-full glass-circle text-white/70 hover:text-white transition-colors"
-              title="Add a review"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {allReviews.map((rev) => (
-              <div
-                key={rev.id}
-                className="p-4 sm:p-5 rounded-2xl glass-card border border-white/10 space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
-                    <Star className="w-3.5 h-3.5 fill-amber-400" />
-                    <span>{rev.rating}/10</span>
-                  </div>
-                  <span className="text-[11px] text-white/40">{rev.date}</span>
-                </div>
-
-                <div className="text-xs font-bold text-white/90">{rev.author}</div>
-                <p className="text-xs text-white/60 leading-relaxed">{rev.comment}</p>
-              </div>
-            ))}
-          </div>
-        </section>
       </div>
+
+      {/* Celebrity Filmography & Biography Modal */}
+      {selectedPersonId && (
+        <CelebrityModal
+          personId={selectedPersonId}
+          onClose={() => setSelectedPersonId(null)}
+        />
+      )}
 
       {/* Trailer Modal */}
       {showTrailerModal && (

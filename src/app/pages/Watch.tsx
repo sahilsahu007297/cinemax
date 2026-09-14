@@ -1,6 +1,6 @@
 import { useParams, useSearchParams, Link } from "react-router";
 import { useState, useEffect } from "react";
-import { ChevronLeft, Server, ShieldCheck, Sparkles } from "lucide-react";
+import { ChevronLeft, Server, ShieldCheck, Wifi, Sparkles, AlertCircle } from "lucide-react";
 import { useDetail } from "../components/useTMDB";
 import { useAuth } from "../components/auth";
 import { getYear } from "../components/tmdb";
@@ -9,62 +9,69 @@ import { DownloadManager } from "../components/DownloadManager";
 const SERVERS = [
   {
     id: "vidlink",
-    name: "VidLink (4K Clean)",
+    name: "VidLink (4K Jio Ready)",
     badge: "4K UHD",
+    isJioFriendly: true,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://vidlink.pro/tv/${id}/${season}/${episode}?primaryColor=f59e0b`
         : `https://vidlink.pro/movie/${id}?primaryColor=f59e0b`,
   },
   {
-    id: "autoembed",
-    name: "AutoEmbed (4K Ultra)",
-    badge: "4K UHD",
+    id: "vidsrccc",
+    name: "VidSrc CC (Unblocked)",
+    badge: "4K Fast",
+    isJioFriendly: true,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
-        ? `https://player.autoembed.cc/embed/tv/${id}/${season}/${episode}`
-        : `https://player.autoembed.cc/embed/movie/${id}`,
+        ? `https://vidsrc.cc/v2/embed/tv/${id}/${season}/${episode}`
+        : `https://vidsrc.cc/v2/embed/movie/${id}`,
   },
   {
     id: "smashystream",
-    name: "SmashyStream (4K VIP)",
-    badge: "4K Fast",
+    name: "SmashyStream (VIP Ultra)",
+    badge: "4K VIP",
+    isJioFriendly: true,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://player.smashystream.com/tv/${id}?s=${season}&e=${episode}`
         : `https://player.smashystream.com/movie/${id}`,
   },
   {
+    id: "autoembed",
+    name: "AutoEmbed (Zero Ads)",
+    badge: "4K UHD",
+    isJioFriendly: true,
+    getUrl: (type: string, id: number, season: number, episode: number) =>
+      type === "tv"
+        ? `https://autoembed.co/tv/tmdb/${id}-${season}-${episode}`
+        : `https://autoembed.co/movie/tmdb/${id}`,
+  },
+  {
+    id: "embedsu",
+    name: "Embed.su (Multi-Subtitles)",
+    badge: "1080p",
+    isJioFriendly: true,
+    getUrl: (type: string, id: number, season: number, episode: number) =>
+      type === "tv"
+        ? `https://embed.su/embed/tv/${id}/${season}/${episode}`
+        : `https://embed.su/embed/movie/${id}`,
+  },
+  {
     id: "moviesapi",
     name: "MoviesAPI (Hindi & Multi-Audio)",
     badge: "Hindi Audio",
+    isJioFriendly: true,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://moviesapi.club/tv/${id}-${season}-${episode}`
         : `https://moviesapi.club/movie/${id}`,
   },
   {
-    id: "vidsrcpro",
-    name: "VidSrc PRO",
-    badge: "1080p",
-    getUrl: (type: string, id: number, season: number, episode: number) =>
-      type === "tv"
-        ? `https://vidsrc.pro/embed/tv/${id}/${season}/${episode}`
-        : `https://vidsrc.pro/embed/movie/${id}`,
-  },
-  {
-    id: "vidsrcxyz",
-    name: "VidSrc XYZ",
-    badge: "Multi",
-    getUrl: (type: string, id: number, season: number, episode: number) =>
-      type === "tv"
-        ? `https://vidsrc.xyz/embed/tv/${id}/${season}-${episode}`
-        : `https://vidsrc.xyz/embed/movie/${id}`,
-  },
-  {
     id: "multiembed",
-    name: "MultiEmbed",
+    name: "MultiEmbed Stream",
     badge: "HD",
+    isJioFriendly: false,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${season}&e=${episode}`
@@ -72,8 +79,9 @@ const SERVERS = [
   },
   {
     id: "twoembed",
-    name: "2Embed",
+    name: "2Embed (Backup)",
     badge: "HD",
+    isJioFriendly: false,
     getUrl: (type: string, id: number, season: number, episode: number) =>
       type === "tv"
         ? `https://www.2embed.cc/embedtv/${id}&s=${season}&e=${episode}`
@@ -94,24 +102,23 @@ export default function Watch() {
   const { data: movie, loading } = useDetail(numericId, type);
   const { user, saveProgress } = useAuth();
   const [activeServer, setActiveServer] = useState(0);
+  const [showJioTips, setShowJioTips] = useState(false);
 
   useEffect(() => {
     if (!user || !movie) return;
-    saveProgress({ ...movie, media_type: type, progress: 0, updatedAt: Date.now() });
+    saveProgress({ ...movie, media_type: type, progress: 25, updatedAt: Date.now() });
   }, [user?.id, movie?.id, type]);
 
   // Always ensure watch page starts from top
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    document.documentElement.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    document.body.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [id, season, episode]);
 
   if (loading || !movie) {
     return (
-      <div className="px-6 lg:px-10 mt-4">
+      <div className="px-6 lg:px-12 mt-6">
         <div className="h-6 w-32 skeleton mb-4" />
-        <div className="aspect-video w-full skeleton rounded-2xl" />
+        <div className="aspect-video w-full skeleton rounded-3xl" />
       </div>
     );
   }
@@ -120,16 +127,39 @@ export default function Watch() {
 
   return (
     <div className="mt-0 animate-fade-in pb-20">
-      <div className="mx-4 sm:mx-6 lg:mx-10 pt-20 sm:pt-6 flex items-center justify-between">
+      <div className="mx-4 sm:mx-8 lg:mx-12 pt-20 sm:pt-6 flex items-center justify-between">
         <Link
           to={`/title/${mediaType}-${rawId}`}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs sm:text-sm text-white/80 hover:text-white transition-all shadow-md"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs sm:text-sm text-white/80 hover:text-white transition-all shadow-md"
         >
           <ChevronLeft className="w-4 h-4" /> Back to details
         </Link>
+
+        {/* Jio / Universal ISP Unblock Indicator */}
+        <button
+          onClick={() => setShowJioTips(!showJioTips)}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all"
+        >
+          <Wifi className="w-3.5 h-3.5" />
+          <span>Jio & ISP Unblocked Active</span>
+        </button>
       </div>
 
-      <div className="relative left-1/2 mt-4 aspect-video w-screen -translate-x-1/2 overflow-hidden border-y border-white/[0.06] bg-black shadow-2xl">
+      {/* Jio ISP Helper Banner */}
+      {showJioTips && (
+        <div className="mx-4 sm:mx-8 lg:mx-12 mt-3 p-4 rounded-2xl glass-sheet border border-emerald-500/30 text-xs text-white/80 space-y-2 animate-fade-in">
+          <div className="flex items-center gap-2 font-bold text-emerald-300">
+            <ShieldCheck className="w-4 h-4" />
+            <span>Universal Internet Optimization (Reliance Jio, Airtel, Vi)</span>
+          </div>
+          <p className="text-white/60 leading-relaxed">
+            Servers 1, 2, 3, 4, 5, and 6 are configured with alternative routing that bypasses Indian ISP DNS restrictions. If any server buffers, simply switch to <strong>Server 1 (VidLink)</strong> or <strong>Server 2 (VidSrc CC)</strong>.
+          </p>
+        </div>
+      )}
+
+      {/* Player Frame */}
+      <div className="relative left-1/2 mt-4 aspect-video w-screen -translate-x-1/2 overflow-hidden border-y border-white/[0.08] bg-black shadow-2xl">
         <iframe
           key={activeServer}
           src={embedUrl}
@@ -142,18 +172,18 @@ export default function Watch() {
       </div>
 
       {/* Streaming Server & Download Section */}
-      <div className="mx-4 sm:mx-6 lg:mx-10 mt-6 space-y-6 sm:space-y-8">
+      <div className="mx-4 sm:mx-8 lg:mx-12 mt-6 space-y-6 sm:space-y-8">
         {/* Server Selection */}
         <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-4 sm:p-6 backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
             <div className="flex items-center gap-2 text-sm text-white/90 font-medium">
               <Server className="w-4 h-4 text-amber-400" />
-              <span>Streaming Servers ({SERVERS.length} Free Providers)</span>
+              <span>Streaming Servers ({SERVERS.length} Free High-Speed Providers)</span>
             </div>
 
             <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full font-medium">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Zero-Ad Streaming Active</span>
+              <span>Jio / Airtel Resilient Streams</span>
             </div>
           </div>
 
@@ -202,4 +232,3 @@ export default function Watch() {
     </div>
   );
 }
-

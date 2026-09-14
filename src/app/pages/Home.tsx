@@ -2,6 +2,7 @@ import { Hero } from "../components/Hero";
 import { Row } from "../components/Row";
 import { PlatformBar } from "../components/PlatformBar";
 import { ContinueWatchingRow } from "../components/ContinueWatchingRow";
+import { CuratedSection } from "../components/CuratedSection";
 import { useHomeData } from "../components/useTMDB";
 import { useAuth, type ContinueItem } from "../components/auth";
 
@@ -51,6 +52,9 @@ export default function Home() {
         loading={loading}
         seeAllLink="/browse?sort=new"
       />
+
+      {/* IMDb Curated Collections, Personalized Interests & Entertainment News Feed */}
+      <CuratedSection />
 
       {/* Latest Hindi Releases (Same-Day & In Theaters) */}
       <Row
