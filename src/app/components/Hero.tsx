@@ -1,111 +1,325 @@
-import { Play, Star, ChevronRight, Info } from "lucide-react";
-import { Link } from "react-router";
+import { useState, useEffect } from "react";
+import { Play, Heart, Bookmark, Plus, X, Film } from "lucide-react";
+import { Link, useNavigate } from "react-router";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
-import { type TMDBMovie, backdrop, getTitle, getYear, getRating, getGenreNames, getMediaType } from "./tmdb";
+import {
+  type TMDBMovie,
+  backdrop,
+  img,
+  getTitle,
+  getYear,
+  getGenreNames,
+  getMediaType,
+  getMovieDetail,
+  getTVDetail,
+} from "./tmdb";
+import { useAuth } from "./auth";
 
-export function Hero({ movie }: { movie: TMDBMovie | null }) {
-  const mediaType = movie ? getMediaType(movie) : "movie";
+interface HeroProps {
+  movie: TMDBMovie | null;
+  featuredList?: TMDBMovie[];
+}
 
-  if (!movie) return <HeroSkeleton />;
+export function Hero({ movie: initialMovie, featuredList = [] }: HeroProps) {
+  const navigate = useNavigate();
+  const { user, isFavorite, toggleFavorite } = useAuth();
 
-  const title = getTitle(movie);
-  const year = getYear(movie);
-  const rating = getRating(movie);
-  const genres = getGenreNames(movie.genre_ids || []);
-  const detailPath = `/title/${mediaType}-${movie.id}`;
+  // Combine initialMovie with featuredList so we always have a rich carousel of 5 items
+  const candidates = (
+    featuredList.length > 0
+      ? featuredList
+      : initialMovie
+      ? [initialMovie]
+      : []
+  ).filter((m) => m && m.backdrop_path).slice(0, 5);
+
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [showTrailerModal, setShowTrailerModal] = useState(false);
+  const [isTrailerLoading, setIsTrailerLoading] = useState(false);
+
+  const activeMovie = candidates[activeIndex] || initialMovie;
+
+  // Auto cycle carousel gently if user is just gazing (every 8s)
+  useEffect(() => {
+    if (candidates.length <= 1 || showTrailerModal) return;
+    const timer = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % candidates.length);
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [candidates.length, showTrailerModal]);
+
+  if (!activeMovie) return <HeroSkeleton />;
+
+  const mediaType = getMediaType(activeMovie);
+  const title = getTitle(activeMovie);
+  const year = getYear(activeMovie);
+  const genres = getGenreNames(activeMovie.genre_ids || []);
+  const favorited = isFavorite(activeMovie.id, mediaType);
+
+  // Format release date e.g. "May, 17"
+  const rawDate = activeMovie.release_date || activeMovie.first_air_date;
+  let formattedDate = "Trending";
+  if (rawDate) {
+    try {
+      const d = new Date(rawDate);
+      formattedDate = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch {
+      // Fallback
+    }
+  }
+
+  // Genre string e.g. "action, thriller"
+  const genreSubtitle = genres.slice(0, 2).map((g) => g.toLowerCase()).join(", ");
+
+  const handleTrailer = async () => {
+    setIsTrailerLoading(true);
+    setShowTrailerModal(true);
+    try {
+      const detail = mediaType === "tv"
+        ? await getTVDetail(activeMovie.id)
+        : await getMovieDetail(activeMovie.id);
+
+      const videos = detail.videos?.results || [];
+      const trailer = videos.find(
+        (v) => (v.type === "Trailer" || v.type === "Teaser") && v.site === "YouTube"
+      ) || videos.find((v) => v.site === "YouTube");
+
+      if (trailer?.key) {
+        setTrailerKey(trailer.key);
+      } else {
+        setTrailerKey(null);
+      }
+    } catch {
+      setTrailerKey(null);
+    } finally {
+      setIsTrailerLoading(false);
+    }
+  };
+
+  const handleFavoriteClick = async () => {
+    if (!user) {
+      navigate("/signin");
+      return;
+    }
+    await toggleFavorite(activeMovie, mediaType);
+  };
 
   return (
-    <section className="relative left-1/2 mt-0 w-screen -translate-x-1/2 overflow-hidden bg-black">
-      <div className="relative min-h-[88vh] lg:min-h-[96vh] max-h-[1050px] overflow-hidden bg-black">
-        {/* Backdrop Image - placed down and extended with seamless edge blending */}
+    <section className="relative w-full overflow-hidden bg-[#08090c] select-none">
+      {/* High-definition Backdrop with smooth cinematic edge blending */}
+      <div className="relative min-h-[86vh] sm:min-h-[90vh] lg:min-h-[94vh] max-h-[1050px] w-full overflow-hidden flex flex-col justify-between">
+        {/* Background Image Layer */}
         <div className="absolute inset-0 overflow-hidden">
           <ImageWithFallback
-            src={backdrop(movie.backdrop_path)}
+            key={activeMovie.id}
+            src={backdrop(activeMovie.backdrop_path)}
             alt={title}
-            className="w-full h-full object-cover object-[center_18%] transition-transform duration-700"
+            className="w-full h-full object-cover object-[center_22%] transition-all duration-1000 transform scale-105 filter brightness-[0.88] contrast-[1.05]"
           />
         </div>
 
-        {/* Soft atmospheric gradients that keep the cover image fully visible */}
-        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/80 via-black/25 to-transparent pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/25 to-transparent pointer-events-none" />
-        <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black to-transparent pointer-events-none" />
+        {/* Cinematic Vignette Gradients matching Screenshot 1 */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#08090c] via-[#08090c]/70 to-transparent w-full md:w-[68%]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#08090c] via-[#08090c]/40 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#08090c]/80 via-black/30 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#08090c] via-[#08090c]/90 to-transparent" />
 
-        <div className="relative mx-auto flex min-h-[85vh] sm:min-h-[88vh] lg:min-h-[96vh] max-h-[1000px] max-w-3xl flex-col items-center justify-end px-4 sm:px-6 pb-10 sm:pb-12 pt-20 sm:pt-28 text-center">
-          <div className="flex items-center gap-2 text-xs text-white/75 tracking-widest uppercase">
-            <span className="w-5 h-5 rounded-full bg-white text-black flex items-center justify-center">
-              <Play className="w-2.5 h-2.5 text-black fill-black" />
-            </span>
-            Featured {mediaType === "tv" ? "Series" : "Film"}
+        {/* Content Container */}
+        <div className="relative z-20 flex-1 flex flex-col justify-center px-6 sm:px-12 lg:px-16 pt-24 sm:pt-28 pb-32 max-w-4xl">
+          {/* Metadata Row: e.g. "May, 17     action, thriller" */}
+          <div className="flex items-center gap-6 text-xs sm:text-sm font-medium tracking-wide text-white/70 uppercase">
+            <span>{formattedDate}</span>
+            {genreSubtitle && (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-white/40" />
+                <span className="lowercase text-white/60">{genreSubtitle}</span>
+              </>
+            )}
           </div>
 
+          {/* Huge bold modern Title matching Screenshot 1 (e.g. JOHN WICK) */}
           <h1
-            className="mt-4 sm:mt-5 text-white"
-            style={{ fontSize: "clamp(2.1rem, 5.5vw, 5.5rem)", fontWeight: 700, lineHeight: 1.02 }}
+            className="mt-3 text-white font-hero-title tracking-tighter"
+            style={{
+              fontSize: "clamp(2.4rem, 6.8vw, 5.8rem)",
+              lineHeight: 0.95,
+              textShadow: "0 4px 30px rgba(0,0,0,0.6)",
+            }}
           >
             {title}
           </h1>
 
-          <div className="mt-3 sm:mt-4 flex flex-wrap items-center justify-center gap-2.5 text-xs text-white/60">
-            <span className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/15 text-white border border-white/20">
-              <Star className="w-3 h-3 fill-white text-white" /> {rating}
-            </span>
-            <span>· {year}</span>
-            {mediaType === "tv" && <span>· TV Series</span>}
-          </div>
-
-          <p className="mt-3 sm:mt-4 text-white/65 text-xs sm:text-sm leading-relaxed max-w-xl line-clamp-2 px-2">
-            {movie.overview}
+          {/* Subtitle / Tagline: e.g. "Chapter 3-Parabellum(2019)" */}
+          <p className="mt-2 text-white/70 text-sm sm:text-base font-normal tracking-wide max-w-xl">
+            {mediaType === "tv" ? `TV Series (${year})` : `(${year})`}
+            {activeMovie.overview ? ` — ${activeMovie.overview.slice(0, 110)}...` : ""}
           </p>
 
-          <div className="mt-3 sm:mt-4 hidden sm:flex gap-2 flex-wrap justify-center">
-            {genres.slice(0, 3).map((g) => (
-              <span key={g} className="px-3 py-1 rounded-full glass text-xs text-white/70">
-                {g}
-              </span>
-            ))}
-          </div>
+          {/* Action Buttons: "Watch now" and "Trailer" */}
+          <div className="mt-7 flex items-center gap-3 sm:gap-4 flex-wrap">
+            <Link
+              to={`/watch/${mediaType}-${activeMovie.id}`}
+              className="inline-flex items-center justify-center gap-2 h-12 px-7 rounded-full bg-white text-black font-semibold text-sm hover:bg-white/85 hover:scale-[1.02] active:scale-95 transition-all shadow-[0_4px_25px_rgba(255,255,255,0.3)]"
+            >
+              <Play className="w-4 h-4 fill-black" />
+              <span>Watch now</span>
+            </Link>
 
-          <div className="mt-6 sm:mt-7 flex items-center justify-center gap-2.5 sm:gap-3 w-full max-w-xs sm:max-w-none">
-            <Link
-              to={`/watch/${mediaType}-${movie.id}`}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 h-11 px-7 rounded-full bg-white text-sm text-black hover:bg-white/80 transition-colors shadow-lg shadow-white/10"
-              style={{ fontWeight: 500 }}
+            <button
+              onClick={handleTrailer}
+              className="inline-flex items-center justify-center gap-2 h-12 px-7 rounded-full glass-pill text-white font-medium text-sm hover:bg-white/[0.18] hover:scale-[1.02] active:scale-95 transition-all"
             >
-              <Play className="w-4 h-4 fill-current" /> Play now
-            </Link>
-            <Link
-              to={detailPath}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full border border-white/10 bg-white/10 text-sm text-white hover:bg-white/20 transition-colors"
-            >
-              <Info className="w-4 h-4" /> Details
-            </Link>
+              <Film className="w-4 h-4 text-white/80" />
+              <span>Trailer</span>
+            </button>
           </div>
         </div>
 
-        <button className="hidden md:flex absolute right-6 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full glass-button text-white/50 hover:text-white items-center justify-center">
-          <ChevronRight className="w-5 h-5" />
-        </button>
+        {/* Bottom Carousel & Floating Action Bar matching Screenshot 1 */}
+        <div className="relative z-20 px-6 sm:px-12 lg:px-16 pb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+          {/* Bottom-left: Thumbnails Row with slim active indicator underneath */}
+          {candidates.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2.5 overflow-x-auto pb-1 [scrollbar-width:none]">
+                {candidates.map((m, idx) => {
+                  const isActive = idx === activeIndex;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setActiveIndex(idx)}
+                      className={`relative w-14 sm:w-16 h-20 sm:h-24 rounded-xl overflow-hidden transition-all duration-300 transform shrink-0 ${
+                        isActive
+                          ? "ring-2 ring-white scale-105 shadow-xl shadow-black/80"
+                          : "opacity-50 hover:opacity-90 hover:scale-100"
+                      }`}
+                    >
+                      <ImageWithFallback
+                        src={img(m.poster_path, "w185")}
+                        alt={getTitle(m)}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Slim progress bar indicating active card */}
+              <div className="w-28 sm:w-36 h-[3px] bg-white/15 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-white transition-all duration-500 rounded-full"
+                  style={{
+                    width: `${((activeIndex + 1) / candidates.length) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Bottom-right: Floating Glass Actions (Heart, Bookmark, Plus) */}
+          <div className="flex items-center gap-3 self-end sm:self-auto">
+            {/* Heart / Favorite Toggle */}
+            <button
+              onClick={handleFavoriteClick}
+              title={favorited ? "Remove from Favorites" : "Add to Favorites (Supabase)"}
+              className={`glass-circle transition-all duration-300 ${
+                favorited
+                  ? "bg-rose-600/90 border-rose-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.6)] scale-105"
+                  : "text-white/80 hover:text-white hover:scale-105"
+              }`}
+            >
+              <Heart
+                className={`w-5 h-5 transition-transform ${
+                  favorited ? "fill-white scale-110" : ""
+                }`}
+              />
+            </button>
+
+            {/* Bookmark / Watchlist */}
+            <Link
+              to="/watchlist"
+              title="Go to Library & Watchlist"
+              className="glass-circle text-white/80 hover:text-white hover:scale-105 transition-all"
+            >
+              <Bookmark className="w-5 h-5" />
+            </Link>
+
+            {/* Plus / Quick Add */}
+            <button
+              onClick={handleFavoriteClick}
+              title="Save to My List"
+              className="glass-circle text-white/80 hover:text-white hover:scale-105 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Trailer Modal (Frosted Glass Overlay) */}
+      {showTrailerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
+          <div className="relative w-full max-w-4xl rounded-3xl glass-sheet overflow-hidden p-2 sm:p-4 shadow-2xl border border-white/20">
+            {/* Header */}
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Film className="w-4 h-4 text-white/70" />
+                <h3 className="text-sm sm:text-base font-semibold text-white">
+                  {title} — Official Trailer
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowTrailerModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Video Player */}
+            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black mt-2">
+              {isTrailerLoading ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white/60">
+                  <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="text-xs font-medium">Loading trailer...</span>
+                </div>
+              ) : trailerKey ? (
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1`}
+                  title={`${title} Trailer`}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="w-full h-full border-0"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-white/60">
+                  <p className="text-sm">Trailer not available for this title.</p>
+                  <Link
+                    to={`/watch/${mediaType}-${activeMovie.id}`}
+                    className="px-5 py-2 rounded-full bg-white text-black text-xs font-semibold hover:bg-white/80"
+                  >
+                    Watch Full Title
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
 function HeroSkeleton() {
   return (
-    <section className="px-6 lg:px-10 mt-2">
-      <div className="relative overflow-hidden rounded-[28px] border border-white/[0.06] bg-[#0d0d14] min-h-[560px]">
-        <div className="absolute inset-0 skeleton" />
-        <div className="relative p-8 lg:p-12 max-w-2xl flex flex-col justify-end min-h-[560px]">
-          <div className="h-4 w-32 skeleton mb-4" />
-          <div className="h-12 w-80 skeleton mb-4" />
-          <div className="h-6 w-48 skeleton mb-4" />
-          <div className="h-16 w-full skeleton mb-4" />
-          <div className="flex gap-3">
-            <div className="h-11 w-36 skeleton rounded-full" />
-            <div className="h-11 w-44 skeleton rounded-full" />
-          </div>
-        </div>
+    <section className="relative w-full min-h-[85vh] bg-[#08090c] p-8 flex flex-col justify-end">
+      <div className="skeleton h-6 w-40 mb-4 rounded-full" />
+      <div className="skeleton h-16 w-80 mb-3 rounded-2xl" />
+      <div className="skeleton h-5 w-64 mb-6 rounded-full" />
+      <div className="flex gap-4">
+        <div className="skeleton h-12 w-36 rounded-full" />
+        <div className="skeleton h-12 w-36 rounded-full" />
       </div>
     </section>
   );
